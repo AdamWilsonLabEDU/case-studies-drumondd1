@@ -1,0 +1,202 @@
+---
+title: "CS_011"
+author: "Drumond Dzakuma"
+date: November 12, 2024
+format: html
+editor: visual
+---
+
+```{r}
+# Load Required Libraries
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(mapview)
+library(foreach)
+library(doParallel)
+library(spData)
+```
+
+registerDoParallel(4) \# Register 4 cores cat("Number of cores registered:", getDoParWorkers(), "\n")
+
+```{r}
+library(tidycensus)
+# Set Census API Key
+census_api_key("a5ab3e46131fddfd52f19076b39ae0c4c74d3b9d", install = TRUE, overwrite = TRUE)
+```
+
+```{r}
+# Define Race Variables
+race_vars <- c(
+  "Total Population" = "P1_001N",
+  "White alone" = "P1_003N",
+  "Black or African American alone" = "P1_004N",
+  "American Indian and Alaska Native alone" = "P1_005N",
+  "Asian alone" = "P1_006N",
+  "Native Hawaiian and Other Pacific Islander alone" = "P1_007N",
+  "Some Other Race alone" = "P1_008N",
+  "Two or More Races" = "P1_009N"
+)
+```
+
+```{r}
+library(tigris)
+library(tidycensus)
+
+### Getting data from the 2020 decennial Census
+race_vars <- c(
+  "Total Population" = "P1_001N",
+  "White alone" = "P1_003N",
+  "Black or African American alone" = "P1_004N",
+  "American Indian and Alaska Native alone" = "P1_005N",
+  "Asian alone" = "P1_006N",
+  "Native Hawaiian and Other Pacific Islander alone" = "P1_007N",
+  "Some Other Race alone" = "P1_008N",
+  "Two or More Races" = "P1_009N"
+)
+
+options(tigris_use_cache = TRUE)
+erie <- get_decennial(geography = "block", variables = race_vars, year=2020,
+                  state = "NY", county = "Erie County", geometry = TRUE,
+                  sumfile = "pl", cache_table=T) 
+```
+
+```{r}
+# Crop to Focus Area (Bounding Box: Buffalo, NY)
+erie <- st_crop(erie, xmin = -78.9, xmax = -78.85, ymin = 42.888, ymax = 42.92)
+
+# Prepare the Data
+erie <- erie %>%
+  mutate(variable = as.factor(variable)) # Convert variable column to factor
+```
+
+```{r}
+library(dplyr)
+library(sf)
+library(foreach)
+library(doParallel)
+
+# Register parallel backend
+registerDoParallel(cores = parallel::detectCores())
+
+# foreach loop
+erie_race <- foreach(
+  race = unique(erie_county$variable), 
+  .combine = rbind, 
+  .packages = c('dplyr', 'sf')
+) %dopar% {
+  # Filter dataset for the current race
+  subset_data <- erie_county %>% filter(variable == race)
+  
+  # Perform sampling and create an sf object
+  sampled_points <- st_sample(subset_data, size = subset_data$value, exact = TRUE) 
+  
+  # Convert to sf and add the race variable
+  st_as_sf(sampled_points) %>%
+    mutate(variable = race)
+}
+
+# Stop parallel backend
+stopImplicitCluster()
+```
+
+```{r}
+library(mapview)
+# Visualize as a Leaflet Map
+dot_map <- mapview(
+  results,
+  zcol = "variable",
+  cex = 0.5, # Adjust point size
+  legend = TRUE
+)
+
+# Print the Map
+dot_map
+```
+
+```{r}
+library(RColorBrewer)
+library(mapview)
+
+# Create a palette with 8 colors
+race_colors <- brewer.pal(8, "Set3")
+
+# Custom color palette
+race_colors <- c(
+  "Total Population" = "gray",
+  "White Alone" = "blue",
+  "Black or African American Alone" = "green",
+  "American Indian and Alaska Native Alone" = "yellow",
+  "Asian Alone" = "red",
+  "Native Hawaiian and Other Pacific Islander Alone" = "purple",
+  "Some Other Race Alone" = "brown",
+  "Two or More Races" = "pink"
+)
+
+# Check unique values in 'variable' column
+unique(results$variable)
+
+# Adjusted Map
+dot_map <- mapview(
+  results, 
+  zcol = "variable",
+  cex = 0.5, # Adjust point size
+  col.regions = race_colors, # Set custom colors
+  legend = TRUE
+)
+
+# Print the Map
+dot_map
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+# Aggregate data by racial group
+agg_data <- erie %>%
+  group_by(variable) %>%
+  summarise(total_population = sum(value, na.rm = TRUE))
+
+# Plot the aggregated polygon data
+polygon_plot <- ggplot(data = agg_data) +
+  geom_sf(aes(fill = total_population)) +
+  scale_fill_viridis_c() +
+  labs(
+    title = "Total Population by Race in Buffalo (Census Blocks)",
+    fill = "Population"
+  ) +
+  theme_minimal()
+
+ggplot(data = erie) +
+  geom_sf(fill = "lightgray", color = "white", size = 0.1) + # Neutral block colors
+  labs(title = "Census Blocks in Buffalo") +
+  theme_minimal()
+
+# Display plot
+print(polygon_plot)
+```
+
+```{r}
+# Calculate Simpson's Diversity Index
+erie_diversity <- erie %>%
+  group_by(GEOID) %>%
+  summarize(
+    diversity_index = 1 - sum((value / sum(value, na.rm = TRUE))^2, na.rm = TRUE)
+  )
+
+# Perform Spatial Join Using st_join
+erie <- st_join(erie, erie_diversity, join = st_equals) # Use an appropriate spatial predicate
+
+# Map the Diversity Index 1`
+diversity_map <- ggplot(data = erie) +
+  geom_sf(aes(fill = diversity_index)) +
+  scale_fill_viridis_c() +
+  labs(
+    title = "Simpson's Diversity Index by Census Block",
+    fill = "Diversity Index"
+  ) +
+  theme_minimal()
+
+# Display plot
+print(diversity_map)
+```
