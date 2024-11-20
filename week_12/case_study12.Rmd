@@ -1,0 +1,100 @@
+---
+title: "case_study_12"
+author: "Drumond Dzakuma"
+format: html
+runtime: shiny
+---
+
+## Shiny Documents
+```{r}
+# Load necessary libraries
+library(httr)
+library(jsonlite)
+library(dygraphs)
+library(xts)
+library(tidyverse)
+library(htmlwidgets)
+library(widgetframe)
+library(xts)
+library(dygraphs)
+library(openmeteo)
+```
+
+```{r}
+# Download weather data for UB
+d<- weather_history(c(43.00923265935055, -78.78494250958327),start = "2023-01-01",end=today(),
+                  daily=list("temperature_2m_max","temperature_2m_min","precipitation_sum")) %>% 
+  mutate(daily_temperature_2m_mean=(daily_temperature_2m_max+daily_temperature_2m_min)/2)
+```
+# Create xts object
+```{r}
+# Load libraries
+library(xts)
+library(dplyr)
+
+# Subset the necessary columns
+d_subset <- d %>%
+  select(date, daily_temperature_2m_max, daily_temperature_2m_min, daily_temperature_2m_mean)
+
+# Ensure the 'date' column is of Date class
+d_subset$date <- as.Date(d_subset$date)
+
+# Convert to xts object
+d_xts <- xts(
+  x = d_subset %>% select(daily_temperature_2m_max, daily_temperature_2m_min, daily_temperature_2m_mean),
+  order.by = d_subset$date
+)
+```
+
+# create dygraph with a title 
+```{r}
+library(dygraphs)
+
+# Create the dygraph for multiple temperature series
+dygraph(d_xts, main = "Daily Temperature in Buffalo, NY") %>%
+  dySeries("daily_temperature_2m_max", label = "Max Temp") %>%
+  dySeries("daily_temperature_2m_min", label = "Min Temp") %>%
+  dySeries("daily_temperature_2m_mean", label = "Avg Temp") %>%
+  dyRangeSelector(dateWindow = c("2023-01-01", "2024-10-31"))
+```
+
+# include precipitation 
+```{r}
+library(dplyr)
+library(dygraphs)
+library(xts)
+
+# Create a subset of the data
+d_subset <- d %>%
+  select(date, daily_precipitation_sum)
+
+# Convert the data to an xts object (required for dygraph)
+d_xts <- xts(d_subset$daily_precipitation_sum, order.by = as.Date(d_subset$date))
+
+# Create the dygraph
+dygraph(d_xts) %>%
+  dyAxis("y", label = "Daily Precipitation (mm)") %>%
+  dyOptions(fillGraph = TRUE, colors = "blue")
+```
+
+```{r}
+library(dplyr)
+library(dygraphs)
+library(xts)
+
+# Subset the necessary columns
+d_subset <- d %>%
+  select(date, daily_precipitation_sum, daily_temperature_2m_max, daily_temperature_2m_min, daily_temperature_2m_mean)
+
+# Convert to xts object (combine columns)
+d_xts <- xts(d_subset %>% select(-date), order.by = as.Date(d_subset$date))
+
+# Create the dygraph with dual axes
+dygraph(d_xts) %>%
+  dySeries("daily_precipitation_sum", axis = "y", label = "Precipitation (mm)", color = "blue") %>%
+  dySeries("daily_temperature_2m_mean", axis = "y2", label = "Temperature (°C)", color = "red") %>%
+  dyAxis("y", label = "Precipitation (mm)") %>%
+  dyAxis("y2", label = "Temperature (°C)") %>%
+  dyOptions(fillGraph = TRUE)
+```
+
